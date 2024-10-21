@@ -8,7 +8,7 @@
 	},
 	"displayName": "Find Select Transform",
 	"description": "Find, select and transform text by your custom scripts",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"icon": "assets/convert.png",
 	"license": "MIT",
 	"repository": {
