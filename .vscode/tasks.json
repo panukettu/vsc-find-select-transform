@@ -1,0 +1,82 @@
+// See https://go.microsoft.com/fwlink/?LinkId=733558
+// for the documentation about the tasks.json format
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "bun",
+			"script": "build:watch",
+			"label": "dev: bun",
+			"runOptions": {
+				"reevaluateOnRerun": true,
+			},
+			"problemMatcher": {
+				"owner": "bun",
+				"source": "bun-build-extension",
+				"applyTo": "allDocuments",
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": "building.*?",
+					"endsPattern": "^built!"
+				},
+				"fileLocation": [
+					"absolute"
+				],
+				"pattern": [
+					{
+						"regexp": "\\s?(error|warning|info):\\s*(.*)\\s+at\\s+([^\\s]+):(\\d+):(\\d+)$",
+						"severity": 1,
+						"message": 2,
+						"file": 3,
+						"line": 4,
+						"column": 5
+					}
+				]
+			},
+			"isBackground": true,
+			"presentation": {
+				"reveal": "always"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"detail": "Build extension and watch for changes"
+		},
+		{
+			"type": "bun",
+			"script": "build:test",
+			"label": "test: bun",
+			"runOptions": {
+				"reevaluateOnRerun": true,
+			},
+			"problemMatcher": {
+				"owner": "bun",
+				"source": "bun-build-extension-test",
+				"applyTo": "allDocuments",
+				"fileLocation": [
+					"absolute"
+				],
+				"pattern": [
+					{
+						"regexp": "\\s?(error|warning|info):\\s*(.*)\\s+at\\s+([^\\s]+):(\\d+):(\\d+)$",
+						"severity": 1,
+						"message": 2,
+						"file": 3,
+						"line": 4,
+						"column": 5
+					}
+				]
+			},
+			"isBackground": false,
+			"presentation": {
+				"reveal": "always"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": false,
+			},
+			"detail": "Build extension and test files"
+		},
+	]
+}

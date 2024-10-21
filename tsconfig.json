@@ -1,0 +1,34 @@
+{
+	"compilerOptions": {
+		"module": "commonjs",
+		"target": "es2020",
+		"outDir": "out",
+		"lib": [
+			"es6",
+			"esnext"
+		],
+		"sourceMap": true,
+		"rootDirs": [
+			"src"
+		],
+		"skipLibCheck": true,
+		"skipDefaultLibCheck": true,
+		"allowJs": true,
+		"allowSyntheticDefaultImports": true,
+		"strict": true
+	},
+	"typeAcquisition": {
+		"enable": true
+	},
+	"include": [
+		"util/builder.ts",
+		"src/**/*.ts",
+		"test/**/*.ts",
+		"temp/.vscode-test.ts"
+	],
+	"exclude": [
+		"out",
+		"node_modules",
+		".vscode-test"
+	]
+}

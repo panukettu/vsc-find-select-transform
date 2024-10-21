@@ -1,0 +1,9 @@
+out
+node_modules
+.vscode-test/
+*.vsix
+*.lock
+*temp
+NOTE.md
+bun.**
+*DS_Store
