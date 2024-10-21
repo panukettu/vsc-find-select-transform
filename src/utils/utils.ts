@@ -206,7 +206,10 @@ export function getCursor(args: {
 
 export function selectRanges(editor: vscode.TextEditor, ranges: MotionSelection[], expand = false) {
 	const selections = toSelections(ranges);
-	return (editor.selections = expand ? editor.selections.concat(selections) : selections);
+	const isForward = editor.selection.anchor ? selections[0].start.isAfter(editor.selection.anchor) : true;
+	const newSelections = (editor.selections = expand ? editor.selections.concat(selections) : selections);
+	const toReveal = selections[selections.length - 1];
+	editor.revealRange(toReveal);
 }
 export async function replaceRanges<T extends vscode.Range[]>(args: {
 	editor: vscode.TextEditor;
