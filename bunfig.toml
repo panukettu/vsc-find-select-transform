@@ -1,0 +1,3 @@
+[test]
+root = "test/unit"
+preload = ["./test/unit/vscode.mock.ts"]

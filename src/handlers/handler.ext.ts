@@ -65,7 +65,7 @@ export async function transform<T extends Transform[] | TFilter>(state: TState, 
 					),
 				},
 			],
-			{ applyEdits }
+			{ applyEdits, edit }
 		);
 	}
 

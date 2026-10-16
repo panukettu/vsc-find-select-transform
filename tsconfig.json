@@ -23,8 +23,7 @@
 	"include": [
 		"util/builder.ts",
 		"src/**/*.ts",
-		"test/**/*.ts",
-		"temp/.vscode-test.ts"
+		"test/**/*.ts"
 	],
 	"exclude": [
 		"out",

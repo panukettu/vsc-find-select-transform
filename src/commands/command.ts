@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
-import type { CommandHandler, Fn } from '../types';
+import type { CommandHandler } from '../types';
+
+export type CommandOptions = {
+	/** Whether the command needs an active text editor to run. Defaults to true. */
+	editor: boolean;
+};
 
 export class Command<
 	Args extends object = any,
@@ -9,19 +14,18 @@ export class Command<
 > {
 	name: Name;
 	id: `find-select-transform.${Name}`;
-	disposable?: vscode.Disposable;
 	handler: Handler;
+	options: CommandOptions;
 
-	static create<N extends string, H extends CommandHandler<any>>(name: N, handler: H) {
-		return new Command(name, handler);
-	}
+	/** Runs the command through VS Code. Object arguments are merged into the handler's args. */
 	execute(...args: any[]) {
 		return vscode.commands.executeCommand<Result>(this.id, ...args);
 	}
 
-	constructor(name: Name, handler: Handler) {
+	constructor(name: Name, handler: Handler, options?: Partial<CommandOptions>) {
 		this.handler = handler;
 		this.name = name;
 		this.id = `find-select-transform.${this.name}` as const;
+		this.options = { editor: true, ...options };
 	}
 }

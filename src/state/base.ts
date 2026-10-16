@@ -1,8 +1,9 @@
-import { existsSync } from 'fs';
+import { existsSync } from 'node:fs';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { Command } from '../commands/command';
 import type { Event, EventHandler, EventKey, Fn } from '../types';
-import { rootError, Warning } from '../utils/errors';
+import { Warning } from '../utils/errors';
 import { getActiveEditor, UndoableWorkspaceEdit } from '../utils/utils';
 
 export abstract class ExtensionStateBase<Id extends string, Config extends { rootPath: string }> {
@@ -10,12 +11,10 @@ export abstract class ExtensionStateBase<Id extends string, Config extends { roo
 	config: Config;
 
 	protected _listeners = new Map<string, vscode.Disposable>();
-	protected filesWatched: Set<string> = new Set();
 	protected ctx: vscode.ExtensionContext;
 	statusBar: vscode.StatusBarItem;
 	decorations = new Map<string, { type: vscode.TextEditorDecorationType; items: vscode.DecorationOptions[] }>();
 
-	edit = new vscode.WorkspaceEdit();
 	undos = new UndoableWorkspaceEdit();
 
 	constructor(id: Id, config: Config, ctx: vscode.ExtensionContext, outputChannel: vscode.LogOutputChannel) {
@@ -27,7 +26,9 @@ export abstract class ExtensionStateBase<Id extends string, Config extends { roo
 		this.statusBar.name = id;
 		this.setStatus(`$(sync~spin) ${id}`);
 
-		this.setContext('dev', ctx.extensionMode !== vscode.ExtensionMode.Production);
+		ctx.subscriptions.push(this.statusBar, { dispose: () => this.dispose() });
+
+		void this.setContext('dev', ctx.extensionMode !== vscode.ExtensionMode.Production);
 		this.createDecorationType('cursor');
 	}
 
@@ -50,6 +51,7 @@ export abstract class ExtensionStateBase<Id extends string, Config extends { roo
 		if (command) this.statusBar.command = command;
 		return this.statusBar.show();
 	}
+
 	addDecoration(args: { type: 'cursor'; range: vscode.Range; iconOrText?: string; right?: number }) {
 		const { type, range, iconOrText, right = 5 } = args;
 		const decoration = this.decorations.get(type);
@@ -77,6 +79,7 @@ export abstract class ExtensionStateBase<Id extends string, Config extends { roo
 	}
 
 	createDecorationType(type: string, icon?: string) {
+		this.decorations.get(type)?.type.dispose();
 		this.decorations.set(type, {
 			type: vscode.window.createTextEditorDecorationType({
 				rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
@@ -94,35 +97,41 @@ export abstract class ExtensionStateBase<Id extends string, Config extends { roo
 		});
 	}
 
+	/** Where transpiled transforms are emitted: workspace storage, or global storage without a workspace. */
 	get outDir() {
-		return this.ctx.storageUri ?? this.ctx.extensionUri.with({ path: this.ctx.extensionUri.path + '/temp' });
+		return vscode.Uri.joinPath(this.ctx.storageUri ?? this.ctx.globalStorageUri, 'transforms');
 	}
 
-	prevContext: Record<string, any> = {};
+	prevContext: Record<string, unknown> = {};
+
+	/** Sets `when`-clause context keys, skipping values that did not change. */
 	async setContext<T extends Record<string, number | string | boolean> | boolean | string | number>(
 		key: string,
 		value: T
 	) {
-		if (typeof value === 'object' && Object.keys(value).length) {
-			for (const [k, v] of Object.entries(value)) {
-				const ctxKey = `${this.id}.${key}.${k}`;
-				this.prevContext[ctxKey] = v;
-				await vscode.commands.executeCommand('setContext', ctxKey, v);
-			}
-		} else {
-			this.prevContext[`${this.id}.${key}`] = value;
-			return await vscode.commands.executeCommand('setContext', `${this.id}.${key}`, value);
+		const entries: [string, unknown][] =
+			typeof value === 'object'
+				? Object.entries(value).map(([k, v]) => [`${this.id}.${key}.${k}`, v])
+				: [[`${this.id}.${key}`, value]];
+
+		for (const [ctxKey, v] of entries) {
+			if (ctxKey in this.prevContext && this.prevContext[ctxKey] === v) continue;
+			this.prevContext[ctxKey] = v;
+			await vscode.commands.executeCommand('setContext', ctxKey, v);
 		}
 	}
 
 	getContext<T>(key: string): T {
-		if (!this.prevContext) return undefined as T;
-		const ctxKey = `${this.id}.${key}`;
-		return this.prevContext[ctxKey] as T;
+		return this.prevContext[`${this.id}.${key}`] as T;
 	}
 
 	registerCommands(...cmds: Command[]) {
-		return cmds.map((cmd) => this._registerCommand(cmd.id, this.commandBase(cmd)));
+		return cmds.map((cmd) => {
+			const disposable = vscode.commands.registerCommand(cmd.id, this.commandBase(cmd));
+			this.ctx.subscriptions.push(disposable);
+			this.trace('-> Registered Command:', cmd.id);
+			return disposable;
+		});
 	}
 
 	protected abstract commandBase(cmd: Command): Fn;
@@ -172,23 +181,6 @@ export abstract class ExtensionStateBase<Id extends string, Config extends { roo
 		);
 	}
 
-	protected _registerCommand<CommandId extends string, T extends Fn, Args extends Parameters<T>>(
-		cmdId: CommandId,
-		handler: T
-	) {
-		const disposable = vscode.commands.registerCommand(cmdId, (...args: Args) => {
-			if (!vscode.window.activeTextEditor?.document) return;
-			try {
-				return handler({ state: this, editor: vscode.window.activeTextEditor }, ...args);
-			} catch (e) {
-				return rootError(e);
-			}
-		});
-		this.ctx.subscriptions.push(disposable);
-		this.trace('-> Registered Command:', cmdId);
-		return disposable;
-	}
-
 	protected getListener<T extends vscode.Disposable = vscode.Disposable>(listener: string, init?: () => T): T {
 		const result = this._listeners.get(listener);
 		if (!result) {
@@ -198,42 +190,37 @@ export abstract class ExtensionStateBase<Id extends string, Config extends { roo
 		return result as T;
 	}
 
+	/** Disposes listeners by exact key or key prefix; everything when called without keys. */
 	dispose(...keys: string[]) {
-		if (!keys?.length) {
+		if (!keys.length) {
 			this._listeners.forEach((l) => l.dispose());
 			this._listeners.clear();
-		} else {
-			keys.forEach((k) => {
-				if (!this._listeners.has(k)) {
-					const fuzz = [...this._listeners.keys()].filter((id) => id.includes(k));
-					if (!fuzz.length) return;
-					fuzz.forEach((f) => this._listeners.get(f)?.dispose());
-				} else {
-					this._listeners.get(k)?.dispose();
+			this.decorations.forEach((d) => d.type.dispose());
+			this.decorations.clear();
+			return;
+		}
+		for (const key of keys) {
+			for (const [id, listener] of [...this._listeners]) {
+				if (id === key || id.startsWith(key)) {
+					listener.dispose();
+					this._listeners.delete(id);
 				}
-			});
+			}
 		}
 	}
 
-	protected watchFile(
-		location: string,
-		listener: EventHandler<'onDidChange'>,
-		params = { allowEmpty: false, clear: true }
-	) {
-		if (!location?.length) return;
-		if (!params.allowEmpty && !existsSync(location)) throw new Warning(`File not found: ${location}`);
-
-		if (params.clear) this.dispose('fs');
-		this.addListener(
-			`fs-onChange-${location}`,
-			() =>
-				this.addListener(`fs-${location}`, () => vscode.workspace.createFileSystemWatcher(location), true).onDidChange(
-					listener
-				),
-			true
-		);
-
-		this.filesWatched.add(location);
+	/**
+	 * Watches a single file for changes and creation. Works for files outside the
+	 * workspace too (e.g. `<home>/...`), which a plain glob string would not.
+	 */
+	protected watchFile(location: string, listener: (uri: vscode.Uri) => unknown) {
+		this.dispose('fs:');
+		if (!location) return;
+		const pattern = new vscode.RelativePattern(vscode.Uri.file(path.dirname(location)), path.basename(location));
+		const watcher = this.addListener(`fs:${location}`, () => vscode.workspace.createFileSystemWatcher(pattern));
+		this.addListener(`fs:${location}:change`, () => watcher.onDidChange(listener));
+		this.addListener(`fs:${location}:create`, () => watcher.onDidCreate(listener));
+		this.trace('[watchFile]', location, existsSync(location) ? '' : '(does not exist yet)');
 	}
 
 	get channel() {

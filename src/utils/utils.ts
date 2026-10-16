@@ -68,24 +68,54 @@ export function getActiveEditor<
 	return editor;
 }
 
-export function getLines(text: string, lt = '\n'): string[] {
-	return text.split(new RegExp(`(?<=${lt})`, 'g'));
+export type Chunk = { text: string; start: number; end: number };
+
+/**
+ * Splits `text` on `separator`, returning each chunk with its offsets within
+ * `text`. Separators are excluded from the chunks, `\r\n` counts as a line
+ * break when splitting on `\n`, and a trailing separator does not produce an
+ * empty final chunk.
+ */
+export function splitWithOffsets(text: string, separator = '\n'): Chunk[] {
+	if (!text.length) return [];
+	if (!separator) separator = '\n';
+
+	const chunks: Chunk[] = [];
+	let pos = 0;
+	while (pos <= text.length) {
+		const idx = text.indexOf(separator, pos);
+		if (idx === -1) {
+			chunks.push({ text: text.slice(pos), start: pos, end: text.length });
+			break;
+		}
+		let end = idx;
+		if (separator === '\n' && end > pos && text[end - 1] === '\r') end--;
+		chunks.push({ text: text.slice(pos, end), start: pos, end });
+		pos = idx + separator.length;
+		if (pos === text.length) break;
+	}
+	return chunks;
 }
 
-export function parseRanges(editor: vscode.TextEditor, ranges: readonly (vscode.Range | vscode.Selection)[]) {
+/** Resolves each range to its text and the chunks (lines by default) within it. */
+export function parseRanges(
+	editor: vscode.TextEditor,
+	ranges: readonly (vscode.Range | vscode.Selection)[],
+	separator = '\n'
+) {
 	const d = editor.document;
 	return ranges.map((range) => {
-		let start = d.offsetAt(range.start);
+		const base = d.offsetAt(range.start);
 		const text = d.getText(range);
-		const lines = getLines(text);
+		const chunks = splitWithOffsets(text, separator);
 		return {
 			range,
 			text,
-			textLines: lines,
-			lines: lines.map((l, i) => ({
+			textLines: chunks.map((c) => c.text),
+			lines: chunks.map((c, i) => ({
 				idx: i,
-				range: new vscode.Range(d.positionAt(start), d.positionAt((start += l.length))),
-				text: l,
+				range: new vscode.Range(d.positionAt(base + c.start), d.positionAt(base + c.end)),
+				text: c.text,
 			})),
 		};
 	});
@@ -106,15 +136,13 @@ export function getFullRange(editor: vscode.TextEditor) {
 	return new vscode.Range(d.lineAt(0).range.start, d.lineAt(d.lineCount - 1).range.end);
 }
 
-export function ensureFile(filepath: string, defaultFile: string) {
+/** Creates `filepath` from `template` unless it already exists. */
+export function ensureFile(filepath: string, template: string) {
 	const dir = path.dirname(filepath);
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-	if (!existsSync(filepath)) {
-		copyFileSync(defaultFile, filepath);
-		vscode.workspace.openTextDocument(filepath).then(vscode.window.showTextDocument);
-	}
-
-	return { dir, filepath };
+	const created = !existsSync(filepath);
+	if (created) copyFileSync(template, filepath);
+	return { dir, filepath, created };
 }
 
 export const fnRegexp = () =>

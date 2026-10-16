@@ -7,8 +7,8 @@
 		"url": "https://github.com/panukettu"
 	},
 	"displayName": "Find Select Transform",
-	"description": "Find, select and transform text by your custom scripts",
-	"version": "0.1.1",
+	"description": "Find, select and transform text with motions and your own TypeScript or RegExp transforms",
+	"version": "0.2.0",
 	"icon": "assets/convert.png",
 	"license": "MIT",
 	"repository": {
@@ -17,32 +17,29 @@
 	},
 	"scripts": {
 		"lint": "eslint src --ext ts",
+		"typecheck": "tsc --noEmit -p .",
+		"test:unit": "bun test",
 		"pretest": "bun run build:test",
 		"test": "vscode-test --config test/.vscode-test.mjs",
-		"vscode:package": "vsce package",
-		"vscode:publish": "vsce publish",
+		"vscode:package": "vsce package --no-dependencies",
+		"vscode:publish": "vsce publish --no-dependencies",
 		"vscode:prepublish": "bun run util/builder.ts --publish",
 		"build": "bun run util/builder.ts",
 		"build:watch": "bun run util/builder.ts --watch",
 		"build:test": "bun run util/builder.ts --test"
 	},
 	"devDependencies": {
-		"@types/glob": "^7.2.0",
+		"@types/bun": "^1.1.11",
 		"@types/mocha": "^8.2.3",
-		"@types/node": "^14.18.63",
+		"@types/node": "^20.17.0",
 		"@types/vscode": "^1.94.0",
-		"@vscode/test-cli": "^0.0.10",
-		"@vscode/test-electron": "^2.4.1",
-		"glob": "^7.2.3",
+		"@vscode/test-cli": "^0.0.15",
+		"@vscode/test-electron": "^3.1.0",
 		"mocha": "^8.4.0",
-		"typescript": "^5.6.3",
-		"vscode-test": "^1.6.1",
-		"@types/bun": "^1.1.11"
+		"typescript": "^5.6.3"
 	},
 	"trustedDependencies": [
 		"vscode",
-		"glob",
-		"vscode-test",
 		"@vscode/test-cli",
 		"@vscode/test-electron",
 		"mocha",
@@ -63,16 +60,19 @@
 			"title": "find-select-transform",
 			"properties": {
 				"find-select-transform.search.jumpResultThreshold": {
-					"description": "Jump to result on this result length, overrides input length threshold.",
-					"type": "number"
+					"description": "Jump to the first result as soon as the search yields this many results or fewer. 0 disables this and the input length threshold is used instead.",
+					"type": "number",
+					"default": 0,
+					"minimum": 0
 				},
 				"find-select-transform.search.jumpInputThreshold": {
-					"description": "Jump to result on this input length",
+					"description": "Jump to the first result once the typed search (excluding spaces) is at least this long. Ignored when jumpResultThreshold is set.",
 					"type": "number",
-					"default": 2
+					"default": 2,
+					"minimum": 0
 				},
 				"find-select-transform.search.jumpSelection": {
-					"description": "What to select when jumping to a result.",
+					"description": "What to select when jumping to a search result.",
 					"type": "string",
 					"default": "input",
 					"enum": [
@@ -82,113 +82,107 @@
 						"words",
 						"start",
 						"end"
+					],
+					"enumDescriptions": [
+						"The whole matched text.",
+						"The first search word only, as typed.",
+						"The complete word the match starts in.",
+						"From the start of the match to the end of the word the match ends in.",
+						"Place the cursor at the start of the match.",
+						"Place the cursor at the end of the match."
 					]
 				},
 				"find-select-transform.transform.src": {
-					"description": "Filepath of your transforms(.ts). <root> is replaced by workspace root. <home> is replaced by homedir. Non-existing path will be created with an example file.",
+					"description": "Path of your transforms file (.ts or .js). <root> is the workspace folder, <home> your home directory; relative paths are resolved from the workspace folder. If the file does not exist, click the status bar item (or run 'Transpile Transforms File') to create an example.",
 					"type": "string",
 					"default": "<root>/.vscode/transformer.ts"
 				},
 				"find-select-transform.transform.watch": {
-					"description": "Watch the transforms source file and transpile on changes.",
+					"description": "Re-transpile the transforms file automatically when it changes. Otherwise it is transpiled on startup and when running 'Transpile Transforms File'.",
 					"type": "boolean",
 					"default": false
 				},
 				"find-select-transform.transform.disableUndoToggle": {
-					"description": "Disable internal undo stack.",
+					"description": "By default 'Transform Cursor Line' on a line you just transformed reverts it instead of transforming again. Enable to always transform.",
 					"type": "boolean",
 					"default": false
 				},
 				"find-select-transform.transform.regexp": {
-					"description": "Optional RegExp transforms.",
+					"description": "RegExp based transforms. Each key is a transform name usable in associations and the 'With' quick picks.",
 					"type": "object",
-					"additionalProperties": true,
-					"patternProperties": {
-						"\\w+": {
-							"type": "object",
-							"additionalProperties": false,
-							"description": "Keys define the transformation name for associations and the selection list for 'With' command.",
-							"required": [
-								"transforms"
-							],
-							"properties": {
-								"flags": {
-									"description": "Regexp flags, 'gm' default.",
-									"type": "string",
-									"default": "gm"
-								},
-								"transforms": {
+					"additionalProperties": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": [
+							"transforms"
+						],
+						"properties": {
+							"flags": {
+								"description": "RegExp flags for every matcher of this transform. Default 'gm'.",
+								"type": "string",
+								"default": "gm",
+								"pattern": "^[dgimsuvy]*$"
+							},
+							"transforms": {
+								"type": "array",
+								"minItems": 1,
+								"description": "Applied in order to the whole selection: [matcher, replacer, flags?]. The replacer supports $1, $<name>, $& etc.",
+								"items": {
 									"type": "array",
-									"description": "Array of transforms; [transform: [matcher: string/regexp, replacer: string, flags?: gmuyis] ].",
+									"minItems": 2,
+									"maxItems": 3,
 									"items": {
-										"type": "array",
-										"minLength": 2,
-										"maxLength": 3,
-										"items": {
-											"type": "string",
-											"minLength": 0,
-											"maxLength": 100
-										}
-									},
-									"minItems": 1,
-									"examples": [
-										[
-											[
-												"^(?<type>\\w+)\\s+(?<name>.*?)\\s*=\\s*(?<value>.*?;?)$",
-												"\n$comment\nconst $<name> = $<value>"
-											],
-											[
-												"(?<clause>else if|if|else)\\((?<conditions>.*?)\\).+\\{",
-												"$<clause> ($<conditions>) { $comment"
-											]
-										]
-									]
+										"type": "string"
+									}
+								}
+							},
+							"additionalValues": {
+								"type": "object",
+								"description": "Extra values for the replacers: { id: pattern }. The pattern is matched against the original text (a group named like the id wins over the whole match) and every $id in the result is replaced with it, or removed when nothing matched.",
+								"additionalProperties": {
+									"type": "string"
 								}
 							}
 						}
 					},
 					"examples": [
 						{
-							"formatAssignment": {
-								"matchers": [
+							"toDoubleQuotes": {
+								"flags": "g",
+								"transforms": [
 									[
-										"^(?<type>\\w+)\\s+(?<name>.*?)\\s*=\\s*(?<value>.*?;?)$",
-										"\n$comment\nconst $<name> = $<value>"
-									],
-									[
-										"(?<clause>else if|if|else)\\((?<conditions>.*?)\\).+\\{",
-										"$<clause> ($<conditions>) { $comment"
+										"'(.*?)'",
+										"\"$1\""
 									]
-								],
-								"extra": {
-									"comment": "(//.*)$"
-								}
+								]
 							},
 							"removeComments": {
 								"flags": "g",
-								"matchers": [
+								"transforms": [
 									[
 										"(//.*|/\\*[^]*?\\*/)",
 										""
 									]
 								]
 							},
-							"toDoubleQuotes": {
-								"flags": "g",
-								"matchers": [
+							"formatAssignment": {
+								"transforms": [
 									[
-										"'(.*?)'",
-										"\"$1\""
+										"^(?<type>\\w+)\\s+(?<name>.*?)\\s*=\\s*(?<value>[^;/]*);?.*$",
+										"$comment\nconst $<name> = $<value>;"
 									]
-								]
+								],
+								"additionalValues": {
+									"comment": "(//.*)$"
+								}
 							}
 						}
 					]
 				},
 				"find-select-transform.transform.associations": {
 					"type": "object",
-					"additionalProperties": true,
-					"minProperties": 1,
+					"additionalProperties": false,
+					"minProperties": 0,
 					"examples": [
 						{
 							"*": [
@@ -228,7 +222,7 @@
 						}
 					],
 					"patternProperties": {
-						"\\w+": {
+						"^(\\*|[\\w.+-]+)$": {
 							"oneOf": [
 								{
 									"type": "array",
@@ -274,16 +268,11 @@
 						}
 					},
 					"default": {
-						"*": {
-							"cursor": [
-								"myGlobalLineTransform"
-							],
-							"range": [
-								"myGlobalRangeTransform"
-							]
-						}
+						"*": [
+							"helloWorldsToFoo"
+						]
 					},
-					"description": "File extension -> Transform(s). Configured file extensions will ignore global transforms (*)."
+					"description": "Which transforms run for which file extension: { ext: [names] } or { ext: { cursor: [names], range: [names] } }. 'cursor' is used by the cursor line commands, 'range' by the selection and file commands. '*' applies to extensions without an entry of their own."
 				}
 			}
 		},
@@ -392,8 +381,7 @@
 		"commands": [
 			{
 				"command": "find-select-transform.transform.transpile",
-				"title": "find-select-transform: Transpile Transforms File",
-				"enablement": "find-select-transform.ctx.hasTransformFile"
+				"title": "find-select-transform: Transpile Transforms File (or create an example)"
 			},
 			{
 				"command": "find-select-transform.transform.selection",

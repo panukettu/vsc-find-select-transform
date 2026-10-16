@@ -1,56 +1,63 @@
 import * as vscode from 'vscode';
-import { Warning } from '../utils/errors';
-import { getState } from '../state/state';
 import type { ParsedTransform, TInput, TInputs, Transform, TransformContext } from '../types';
+import { Warning } from '../utils/errors';
 import { parseRanges } from '../utils/utils';
 import { regexpTransform } from './handler.regexp';
 
 export type CtxBase = Omit<TransformContext, 'lines'>;
 
-async function transform(transformer: ParsedTransform, text: string, ctx: TransformContext) {
+/** Runs the functions of a transform in order; each receives the previous output. */
+export async function runTransformer(transformer: ParsedTransform, text: string, ctx: TransformContext) {
 	let result = text;
 	for (const fn of transformer.functions) {
 		try {
-			result = await fn(text, ctx);
-		} catch (e: any) {
-			throw new Warning(`Error in ${transformer.label}.\nError: ${'message' in e ? e.message : e}`);
+			result = await fn(result, ctx);
+		} catch (e) {
+			const message = e instanceof Error ? e.message : String(e);
+			throw new Warning(`Error in transform "${transformer.label}": ${message}`);
+		}
+		if (typeof result !== 'string') {
+			throw new Warning(`Transform "${transformer.label}" returned ${typeof result}, expected a string.`);
 		}
 	}
 	return result;
 }
 
-async function transformRange(transformer: Transform, editor: vscode.TextEditor, range: TInput, context: CtxBase) {
-	const state = getState();
-	state.debug('[transform] ', transformer.label);
+const toEdit = (range: vscode.Range, before: string, after: string) =>
+	before === after ? [] : [vscode.TextEdit.replace(range, after)];
 
-	const { lines, textLines, text } = parseRanges(editor, [range])[0];
-	const ctx = { ...context, lines: textLines, raw: text };
+async function transformRange(
+	transformer: Transform,
+	editor: vscode.TextEditor,
+	range: TInput,
+	context: CtxBase
+): Promise<vscode.TextEdit[]> {
+	const separator = transformer.type === 'line' ? transformer.separator : undefined;
+	const { lines, textLines, text } = parseRanges(editor, [range], separator)[0];
+	const ctx: TransformContext = { ...context, lines: textLines, raw: text };
 
-	if (transformer.type === 'regexp') return [vscode.TextEdit.replace(range, regexpTransform(transformer, text))];
+	if (transformer.type === 'regexp') return toEdit(range, text, regexpTransform(transformer, text));
+
 	if (transformer.type === 'line') {
-		state.debug('[transform] lines:', lines.length);
-		return Promise.all(
-			lines.map(async (l, i) => {
-				return vscode.TextEdit.replace(l.range, await transform(transformer, l.text, { ...ctx, line: i }));
-			})
-		);
+		const edits: vscode.TextEdit[] = [];
+		for (const [i, line] of lines.entries()) {
+			edits.push(...toEdit(line.range, line.text, await runTransformer(transformer, line.text, { ...ctx, line: i })));
+		}
+		return edits;
 	}
 
-	return [vscode.TextEdit.replace(range, await transform(transformer, text, ctx))];
+	return toEdit(range, text, await runTransformer(transformer, text, ctx));
 }
 
+/** Applies one transform to each range, returning the edits per range. */
 export async function transformRanges(
-	t: Transform,
-	r: TInputs,
-	e: vscode.TextEditor,
-	ctx: CtxBase
-): Promise<vscode.TextEdit[][]>;
-export async function transformRanges(
-	t: Transform,
-	r: TInputs,
-	e: vscode.TextEditor,
+	transform: Transform,
+	ranges: TInputs,
+	editor: vscode.TextEditor,
 	ctx: CtxBase
 ): Promise<vscode.TextEdit[][]> {
-	if (!(r instanceof Array)) r = [r];
-	return await Promise.all(r.map((range) => transformRange(t, e, range, ctx)));
+	const list = ranges instanceof Array ? ranges : [ranges];
+	const result: vscode.TextEdit[][] = [];
+	for (const range of list) result.push(await transformRange(transform, editor, range, ctx));
+	return result;
 }

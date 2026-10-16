@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { type TState, debug } from '../state/state';
+import type { TState } from '../state/state';
 import type { MotionInput } from './input';
 import { type Cursor, escape } from './utils';
 
@@ -28,26 +28,33 @@ export function searchWords(args: {
 			value: m[0],
 			offset: idx,
 			process: (cfg = config) => {
-				const { jumpSelect } = cfg;
+				const { jumpSelection } = cfg;
+				const matchStart = editor.document.positionAt(idx);
+				const matchEnd = editor.document.positionAt(idx + m[0].length);
+				const firstInputEnd = editor.document.positionAt(idx + words[0].length);
 
-				const word = words[0];
-				const wordIndex = idx + m[0].indexOf(word);
+				let range: vscode.Range;
+				switch (jumpSelection) {
+					case 'start':
+						range = new vscode.Range(matchStart, matchStart);
+						break;
+					case 'end':
+						range = new vscode.Range(matchEnd, matchEnd);
+						break;
+					case 'first-input':
+						range = new vscode.Range(matchStart, firstInputEnd);
+						break;
+					case 'first-word':
+						range = new vscode.Range(matchStart, editor.document.getWordRangeAtPosition(matchStart)?.end ?? firstInputEnd);
+						break;
+					case 'words':
+						range = new vscode.Range(matchStart, editor.document.getWordRangeAtPosition(matchEnd)?.end ?? matchEnd);
+						break;
+					default:
+						range = new vscode.Range(matchStart, matchEnd);
+				}
 
-				const start = editor.document.positionAt(wordIndex);
-
-				const wordsOnly = jumpSelect === 'words' || jumpSelect === 'first-word';
-				const wordRange = wordsOnly ? editor.document.getWordRangeAtPosition(start) : null;
-				const onlyFirst = jumpSelect === 'first-word' || jumpSelect === 'first-input';
-
-				let end = wordRange && onlyFirst && wordRange.end;
-				if (!end && !onlyFirst) end = editor.document.positionAt(wordIndex + m[0].length);
-				if (!end) end = editor.document.positionAt(wordIndex + word.length);
-				if (!onlyFirst && wordsOnly) end = editor.document.getWordRangeAtPosition(end)?.end ?? end;
-
-				return {
-					range: new vscode.Range(start, end),
-					line: editor.document.lineAt(start.line),
-				};
+				return { range, line: editor.document.lineAt(range.start.line) };
 			},
 		};
 	});

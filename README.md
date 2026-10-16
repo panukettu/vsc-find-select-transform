@@ -1,122 +1,240 @@
-# find-select-transform (vscode)
+# Find Select Transform
 
-Default keybindings: modifier [alt] + action [x/s/f/g/c/t] (change/select/search/goto/repeat/transform) + target [a/d || x/s/f/g/c/t] (prev/next | cursor).
+Keyboard driven text motions (find, select, change, go to) plus a way to run your own
+TypeScript functions or RegExp rewrites on a selection, the cursor line or the whole file.
 
-## Find
+- **Find**: incremental word search with jump-to-result decorations.
+- **Select / Change / Go to**: `ci{`-style motions for brackets, quotes, comments, words, lines and functions.
+- **Transform**: write transforms in `.vscode/transformer.ts` (or configure RegExp pairs in settings) and apply them per file type.
 
-The search works by partial matching content of each word (separated by space).
+## Getting started
 
-Example document:
+1. Install the extension. The status bar shows `fst: no transforms file`.
+2. Click it (or run **find-select-transform: Transpile Transforms File**) and choose **Create example file**.
+   An example `.vscode/transformer.ts` is created in your workspace and transpiled.
+3. Put the cursor on a line containing `hello world` and press `alt+t alt+c`. It becomes `foo`.
+   Press `alt+t alt+c` again to revert, or `alt+t c` to pick any transform.
 
-```typescript
-const foo = 'foo bar';
-let greet = 'hello world!';
-const name = 'foo';
+Nothing besides VS Code is required: the transforms file is compiled with the TypeScript
+compiler that ships with VS Code (the workspace's `node_modules/typescript` is used as a fallback).
 
-function greet(name: string) {
-	return `Hello, ${name}!`;
-}
+## Transforms
 
-// this greets the name
-console.log(greet(name));
+### The transforms file
 
+`find-select-transform.transform.src` points to a `.ts` (or `.js`) file, by default
+`<root>/.vscode/transformer.ts`. `<root>` is the workspace folder, `<home>` your home directory.
+The file must default-export an object with a `transforms` record:
+
+```ts
 export default {
-	foo,
-	greet,
+	transforms: {
+		// Line transform (default): called once per line, without the line break.
+		trimEnd: (text) => text.trimEnd(),
+
+		// Chained: each function receives the previous result.
+		normalizeQuotes: [(t) => t.replaceAll('"', "'"), (t) => t.replaceAll("''", '""')],
+
+		// Raw: called once with the whole selection / line / file.
+		sortLines: { type: 'raw', run: (text) => text.split('\n').sort().join('\n') },
+
+		// Custom separator: here each comma separated cell is a "line".
+		upperCaseCsv: { type: 'line', separator: ',', run: (text) => text.trim().toUpperCase() },
+
+		// Use the context.
+		numberLines: (text, ctx) => `${ctx.line + 1}  ${text}`,
+	},
 };
 ```
 
-Examples with searchTriggerCount set to 1 (only matches when there is a single result):
+Each transform is one of:
 
-- Search: `const f` -> moves cursor to `const f` in `const`.
-- Search: `foo` -> cursor to `foo` in `foo bar`.
-- Search from line: `alt+f-f 20 g` -> moves cursor to `greets` in `// this greets the name`.
+| Shape                                      | Behaviour                                                      |
+| ------------------------------------------ | -------------------------------------------------------------- |
+| `fn`                                       | Line transform: `fn(line, ctx)` for every line of each range.  |
+| `[fn1, fn2, ...]`                          | Same, chained: `fn2` receives the output of `fn1`.             |
+| `{ type: 'raw', run: fn \| fn[] }`         | Runs once per range with the whole text.                       |
+| `{ type: 'line', separator?, run }`        | Line transform splitting on `separator` instead of line breaks. |
 
-- Find text with `alt+f-a/d` (prev/next). Repeat with `alt+c-c/a/d`.
+Functions may be `async` and must return a string. Edits whose output equals the input are skipped.
 
-## Select/Change/Goto
+The second argument `ctx` contains:
 
-Select, change and move in text. Similar to eg. `ci` in vim.
+| Field          | Description                                                    |
+| -------------- | -------------------------------------------------------------- |
+| `file`         | Absolute path of the document.                                 |
+| `ext`          | File extension without the dot.                                |
+| `rootPath`     | Workspace folder of the document.                              |
+| `raw`          | Full text of the range being transformed.                      |
+| `lines`        | All chunks (lines) of the range.                               |
+| `line`         | Index of the current chunk in `lines`, `-1` for raw transforms. |
+| `documentText` | Full text of the document.                                     |
 
-These commands require typing eg. `{` `(` `[` `'` `"` `\` to the input field, but enter-press is not required.
+Relative imports (`./helpers`) are transpiled along with the file. Packages resolve from the
+workspace's `node_modules`. Only syntax has to be valid; type errors are ignored, so you can
+keep the file loose or type it with the `Transform`/`Ctx` types the example file defines.
 
-Examples:
+The file is transpiled when the extension starts and when you run **Transpile Transforms File**
+(or click the status bar item). Set `find-select-transform.transform.watch` to re-transpile on
+save. Unchanged files are not re-compiled: the output is cached in the workspace storage.
+Problems are reported in the **find-select-transform** output channel.
 
-- Select content of next curly: `alt-s-s {`
-- Repeat to select content of next curly behind: `alt-c-d` or `alt-c-a`
-- Select 2 words starting from 2nd word behind: `alt+s-a 2 2w`
+### RegExp transforms
 
-- Select content of next function body: `alt-s-d fn`
-- Select content of next function body behind: `alt-s-a fn`
+Simple rewrites can live in settings instead:
 
-- Select 2nd curly block forward: `alt-s-d 2 {`
-- Select 5th line from top: `alt-s-s 5l`
-- Select curly in 5th line: `alt-s-s 5 {`
-- Select 2 curlies from 5th line: `alt-s-s 5 2{`
+```jsonc
+"find-select-transform.transform.regexp": {
+	"toDoubleQuotes": {
+		"flags": "g",                                  // default "gm"
+		"transforms": [["'(.*?)'", "\"$1\""]]          // [matcher, replacer, flags?], applied in order
+	},
+	"formatAssignment": {
+		"transforms": [["^(?<type>\\w+)\\s+(?<name>.*?)\\s*=\\s*(?<value>[^;/]*);?.*$", "$comment\nconst $<name> = $<value>;"]],
+		"additionalValues": { "comment": "(//.*)$" }   // $comment := what this pattern matches in the input
+	}
+}
+```
 
-- Select content of 4 previous quote pairs: `alt-s-s -4'`
-- Select content of 4 quote pairs behind, after 2 pairs: `alt-s-a 2 4'`
+Matchers run against the whole range in order. Replacers support the usual `$1`, `$<name>`, `$&`.
+`additionalValues` adds `$id` placeholders: each pattern is matched against the original text
+(a capture group named like the id wins over the whole match) and every `$id` in the result is
+replaced by it, or removed when nothing matched.
 
-- Select body of 2 closest functions forward: `alt-s-d 2fn`
-- Select the next 2 function bodies: `alt+c+d`
+### Associations
 
-- Select body of 2 closest functions forward, additive: `alt-s-d +2fn`
-- Append next 2 function bodies to selection: `alt+c+d`
+`find-select-transform.transform.associations` decides which transforms run for which file type:
 
-- Select body of 2 closest function params behind: `alt-s-a 2fa`
+```jsonc
+"find-select-transform.transform.associations": {
+	"*": ["trimEnd"],                                   // any extension without its own entry
+	"json": ["removeJsonComments"],
+	"ts": { "cursor": ["toggleArrowFn"], "range": ["sortImports", "trimEnd"] }
+}
+```
 
-- Change in curly: `alt-x-x {`
-- Change next curly: `alt-x-d {`
+`cursor` transforms are used by the *Cursor Line* commands, `range` transforms by the *Selection*
+and *Active File* commands. A plain array is used for both. Transforms run in the listed order, each
+receiving the output of the previous one.
 
-- Change prev fn body: `alt-x-a fn`
-- Change next fn args: `alt-x-d fa`
+### Commands
 
-- Change 10 lines from cursor: `alt-x-x 10L`
+| Command                              | Default key    | Description                                                                 |
+| ------------------------------------ | -------------- | --------------------------------------------------------------------------- |
+| Transform Selection                  | `alt+t alt+s`  | Apply the `range` associations to every selection.                          |
+| Transform Selection With             | `alt+t s`      | Pick transforms from a list instead.                                        |
+| Transform Cursor Line                | `alt+t alt+c`  | Apply the `cursor` associations to the cursor line. Run again to revert.    |
+| Transform Cursor Line With           | `alt+t c`      | Pick transforms from a list instead.                                        |
+| Transform Active File                |                | Apply the `range` associations to the whole file.                           |
+| Transform Active File With           |                | Pick transforms from a list instead.                                        |
+| Transform Repeat                     | `alt+t alt+t`  | Re-run the previous selection or cursor line transforms.                    |
+| Undo At Cursor                       | `alt+t alt+z`  | Revert the transform applied to the cursor line.                            |
+| Transpile Transforms File            |                | Re-transpile `transform.src`, or create the example file if it is missing.  |
+| Toggle Keybindings                   |                | Disable/enable all keybindings of this extension.                           |
 
-- Change content of 2 previous '', additive: `alt-x-a +2'`
-- Repeat to select 2 more: `alt-c-c`
-- Repeat previous to 2 next '': `alt-c-a`
-- Repeat to 4 previous '': `alt-c-d`
+The status bar item shows `associated/total` transforms for the current file; hover for details.
+Set `find-select-transform.transform.disableUndoToggle` to make *Transform Cursor Line* always transform.
 
-- Goto start of curly: `alt-g-g {`
-- Goto start of next curly: `alt-g-d {`
-- Goto start of prev curly: `alt-g-a {`
-- Goto start of curly in line 20: `alt-g-g 20 {`
-- Goto second word: `alt-f-d 2 w`
+## Motions
 
-## Transform
+Default keybindings: `alt` + action + target, where the action is one of
+`x` change, `s` select, `f` find, `g` go to, `c` repeat, and the target is `alt+a` (backward),
+`alt+d` (forward) or the action key again (at cursor). Example: `alt+s alt+d` selects forward.
 
-Transform text using your own custom ts-functions/regexp-patterns (a transform). These transforms can be associated with the active file type and applied on a file, selection or line basis.
+An input box opens for the motion. Element motions apply as soon as they are typed, no enter needed.
 
-Multiple transforms are applied in order of appearance in the configuration, with the output of the previous transform being the input of the next.
+### Motion syntax
 
-### Transform Selection
+```
+[+] [line ] [count] target
+```
 
-- Passed the selected ranges to the transform(s) in `find-select-transform.transform.associations[key]` or `find-select-transform.transform.associations[key].range`.
-- Transforms can (optionally) choose the type of input from:
-  - raw text block per selection
-  - (default) array of lines separated by `\n`, or a custom separator
+| Part     | Meaning                                                                                  |
+| -------- | ---------------------------------------------------------------------------------------- |
+| `+`      | Add to the current selections instead of replacing them.                                 |
+| `line `  | A number followed by a space: operate from that line (1-based).                          |
+| `count`  | Repeat count; negative counts go backwards.                                              |
+| `target` | `(` `[` `{` `'` `"` `` ` `` `//` `/*` `#` `<!--` element contents, `w` word, `l` line, `L` lines from cursor, `F` file, `fn` function body, `fa` function arguments, `fi` function name |
 
-### Transform Selection With
+### Examples
 
-- Instead of using associated transforms, a quick pick is shown for selecting the transforms to apply.
+| Keys                 | Effect                                                   |
+| -------------------- | -------------------------------------------------------- |
+| `alt+s alt+s` `{`    | Select the contents of the enclosing `{}`.               |
+| `alt+s alt+d` `2 {`  | Select the contents of the 2nd `{}` ahead.               |
+| `alt+s alt+s` `5l`   | Select line 5.                                           |
+| `alt+s alt+s` `5 {`  | Select the `{}` contents on line 5.                      |
+| `alt+s alt+s` `-4'`  | Select the contents of the 4 previous `''` pairs.        |
+| `alt+s alt+a` `2 2w` | Select 2 words starting from the 2nd word behind.        |
+| `alt+s alt+d` `+2fn` | Add the next 2 function bodies to the selection.         |
+| `alt+x alt+x` `{`    | Change (delete and edit) inside the enclosing `{}`.      |
+| `alt+x alt+x` `10L`  | Change the next 10 lines.                                |
+| `alt+x alt+d` `fa`   | Change the arguments of the next function.               |
+| `alt+g alt+g` `20 {` | Go to the start of the `{}` on line 20.                  |
+| `alt+c alt+c`        | Repeat the previous motion. `alt+c alt+a/d` repeats backward/forward. |
 
-### Transform Cursor Line
+### Find
 
-- Passes the line of text under cursor to the transform(s) in `find-select-transform.transform.associations[key]`or `find-select-transform.transform.associations[key].cursor`.
+`alt+f alt+f` (from line), `alt+f alt+d` (forward), `alt+f alt+a` (backward). Type words
+separated by spaces; each word matches partially and in order, e.g. `con f` matches `const foo`.
+Matches are decorated while typing. The cursor jumps to the first match when
 
-### Transform Cursor Line With
+- the result count drops to `search.jumpResultThreshold` (when set), or
+- the typed input reaches `search.jumpInputThreshold` characters.
 
-- Instead of using associated transforms, a quick pick is shown for selecting the transforms to apply.
+`search.jumpSelection` controls what is selected on jump: the whole `input`, the `first-input` word,
+the `first-word` or all `words` of the match, or just place the cursor at the `start` or `end`.
 
-### Transform File
+With `alt+f alt+f` the input may start with a line number: `20 g` searches for `g` from line 20.
 
-- The entire file is passed to the transform. Associations are shared with Transform Selection.
+## Settings
 
-### Transform File With
+| Setting                                        | Default                           | Description                                             |
+| ---------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
+| `transform.src`                                | `<root>/.vscode/transformer.ts`   | Transforms file. `<root>`, `<home>` and relative paths. |
+| `transform.watch`                              | `false`                           | Re-transpile when the file changes.                     |
+| `transform.associations`                       | `{ "*": ["helloWorldsToFoo"] }`   | Transforms per file extension.                          |
+| `transform.regexp`                             | `{}`                              | RegExp transforms.                                      |
+| `transform.disableUndoToggle`                  | `false`                           | Never revert on repeated cursor line transform.         |
+| `search.jumpResultThreshold`                   | `0`                               | Jump when this many results or fewer remain.            |
+| `search.jumpInputThreshold`                    | `2`                               | Jump once the input is this long.                       |
+| `search.jumpSelection`                         | `input`                           | What to select on jump.                                 |
 
-- Instead of using associated transforms, a quick pick is shown for selecting the transforms to apply.
+All settings are prefixed with `find-select-transform.`.
 
-### Repeat Transform
+## Extension API
 
-- Repeat the last corresponding transforms if a range is selected or cursor is active.
+Other extensions can drive this one through `vscode.extensions.getExtension('0xp.find-select-transform').exports`:
+
+```ts
+const fst = vscode.extensions.getExtension('0xp.find-select-transform')!.exports;
+await fst.transpile();                                        // (re)compile the transforms file
+fst.getTransforms('.ts');                                     // { all, filtered }
+await fst.transform({ transforms: ['trimEnd'] });             // on the current selections
+await fst.transform({ transforms: [{ type: 'raw', label: 'x', functions: [(t) => t.toUpperCase()] }] });
+await fst.motion("'", { isNext: true });                      // select the contents of the next quotes
+```
+
+See `SelectTransform` in `src/extension.ts` for the full surface.
+
+## Troubleshooting
+
+- **`fst: no transforms file`**: the configured file does not exist. Click the item to create the example.
+- **Transpiling failed**: syntax errors and loader problems are listed in the *find-select-transform* output
+  channel (View → Output). Type errors never block transpilation.
+- **TypeScript compiler not found**: only happens outside desktop VS Code. Install `typescript` in the workspace.
+- **A transform imports a package that cannot be found**: install it in the workspace; the compiled output
+  resolves packages from the workspace's `node_modules`.
+
+## Development
+
+```sh
+bun install
+bun run build          # bundle to ./out (bun run build:watch to keep rebuilding)
+bun run typecheck
+bun run test:unit      # fast unit tests (bun test)
+bun run test           # VS Code integration tests (downloads VS Code on first run)
+bun run vscode:package # build the .vsix
+```
+
+Press `F5` in VS Code to launch an Extension Development Host with the build task watching `src/`.

@@ -13,3 +13,7 @@ vsc-extension-quickstart.md
 **/test/**
 NOTE.md
 util/**
+bunfig.toml
+*.vsix
+**/.transpile-manifest.json
+bun.lock

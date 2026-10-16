@@ -78,7 +78,7 @@ export async function handleSearchMotion<T>({
 					words: input.motion.value.split(' '),
 				}),
 				editor,
-				edit: state.edit,
+				edit: new vscode.WorkspaceEdit(),
 				select: (selected = [], expand) => selectRanges(editor, selected, expand ?? input.expand),
 			});
 			if (searchResult) {
