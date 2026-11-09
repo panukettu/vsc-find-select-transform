@@ -8,7 +8,7 @@
 	},
 	"displayName": "Find Select Transform",
 	"description": "Find, select and transform text with motions and your own TypeScript or RegExp transforms",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"icon": "assets/convert.png",
 	"license": "MIT",
 	"repository": {
