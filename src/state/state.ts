@@ -23,7 +23,7 @@ import type {
 import { Critical, errorMessage, Info, Warning } from '../utils/errors';
 import type { MotionInput } from '../utils/input';
 import { loadTypeScript, transpile, typescriptCandidates } from '../utils/transpile';
-import { ensureFile, getActiveEditor, quickPickTransforms } from '../utils/utils';
+import { ensureFile, getActiveEditor, offsetsAfterEdits, quickPickTransforms } from '../utils/utils';
 import { ExtensionStateBase } from './base';
 
 export type TState = InstanceType<typeof State>;
@@ -175,23 +175,13 @@ class State extends ExtensionStateBase<typeof EXTENSION_ID, Config> {
 			type: config.type,
 		};
 
-		const ctx = this.getTransformCtx(editor);
-		for (const transform of result.transforms) {
-			result.editCount += await this.setEdits(
-				[
-					{
-						document: editor.document,
-						items: transformRanges(
-							transform,
-							typeof inputs === 'function' ? inputs(editor) : [inputs.range],
-							editor,
-							ctx
-						),
-					},
-				],
-				config
-			);
-		}
+		result.editCount = await this.runTransforms(
+			result.transforms,
+			typeof inputs === 'function' ? inputs(editor) : [inputs.range],
+			editor,
+			this.getTransformCtx(editor),
+			config
+		);
 
 		return this.onTransformsFinished(result);
 	}
@@ -236,13 +226,55 @@ class State extends ExtensionStateBase<typeof EXTENSION_ID, Config> {
 		void this.updateContext();
 	}
 
+	/**
+	 * Runs transforms in order, each on the output of the previous one. The ranges are tracked
+	 * through the edits: re-reading editor.selections would not work, as an edit moves or collapses them.
+	 * Returns the number of text edits.
+	 */
+	async runTransforms(
+		transforms: Transform[],
+		inputs: TInputs,
+		editor: vscode.TextEditor,
+		ctx: CtxBase,
+		config: { applyEdits?: boolean; edit?: vscode.WorkspaceEdit; saveUndo?: boolean }
+	) {
+		const { document } = editor;
+		let ranges = (inputs instanceof Array ? inputs : [inputs]) as readonly vscode.Range[];
+		const textBefore = ranges.map((range) => document.getText(range));
+		let editCount = 0;
+
+		for (const [i, transform] of transforms.entries()) {
+			const edits = await transformRanges(transform, ranges, editor, ctx);
+			const offsets = offsetsAfterEdits(document, ranges, edits);
+			// WorkspaceEdit.set appends, so reusing an edit that was applied would apply it again.
+			const edit = config.applyEdits && i > 0 ? new vscode.WorkspaceEdit() : config.edit;
+			const applied = await this.setEdits([{ document, items: edits }], { ...config, edit });
+			editCount += applied;
+			if (applied && config.applyEdits) {
+				ranges = offsets.map(({ start, end }) => new vscode.Range(document.positionAt(start), document.positionAt(end)));
+			}
+		}
+
+		// However many transforms ran, one run is one undo step per range.
+		if (config.saveUndo && config.applyEdits) {
+			const items = ranges.map((range, i) => ({
+				prev: textBefore[i],
+				newText: document.getText(range),
+				lines: [range.start.line, range.end.line] as [number, number],
+			}));
+			this.undos.record(document.uri, items.filter((item) => item.prev !== item.newText));
+		}
+
+		return editCount;
+	}
+
 	/** Collects edits into a WorkspaceEdit and optionally applies it. Returns the number of text edits. */
 	async setEdits(
 		edits: {
 			document: vscode.TextDocument;
 			items: vscode.TextEdit[] | vscode.TextEdit[][] | Promise<vscode.TextEdit[] | vscode.TextEdit[][]>;
 		}[],
-		config?: { applyEdits?: boolean; edit?: vscode.WorkspaceEdit; saveUndo?: boolean }
+		config?: { applyEdits?: boolean; edit?: vscode.WorkspaceEdit }
 	): Promise<number> {
 		const edit = config?.edit ?? new vscode.WorkspaceEdit();
 		let count = 0;
@@ -255,16 +287,14 @@ class State extends ExtensionStateBase<typeof EXTENSION_ID, Config> {
 		}
 
 		if (!count) return 0;
-		return config?.applyEdits ? this.applyEdits(edit, config.saveUndo) : count;
+		return config?.applyEdits ? this.applyEdits(edit) : count;
 	}
 
-	async applyEdits(edit: vscode.WorkspaceEdit, saveUndo?: boolean) {
+	async applyEdits(edit: vscode.WorkspaceEdit) {
 		const total = edit.entries().reduce((n, [, edits]) => n + edits.length, 0);
 		this.trace(`[applyEdits] ${total} edits across ${edit.size} documents`);
 
-		if (saveUndo) this.undos.queue(edit);
 		const success = await vscode.workspace.applyEdit(edit);
-		if (saveUndo) this.undos.append(success);
 
 		return success ? total : 0;
 	}

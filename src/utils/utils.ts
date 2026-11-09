@@ -263,6 +263,32 @@ export function toSelections(selections: MotionSelection[], editor = getActiveEd
 	});
 }
 
+/**
+ * Where ranges end up, as offsets, once their edits are applied. `edits[i]` are the edits
+ * inside `ranges[i]`. Call before applying them: the document must still be in its old state.
+ */
+export function offsetsAfterEdits(
+	document: vscode.TextDocument,
+	ranges: readonly vscode.Range[],
+	edits: vscode.TextEdit[][]
+) {
+	const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+	const changes = edits.map((list) =>
+		list.map(({ range, newText }) => ({
+			end: document.offsetAt(range.end),
+			// Applying an edit converts its line endings to the document's.
+			delta: newText.replace(/\r\n|\r|\n/g, eol).length - document.getText(range).length,
+		}))
+	);
+	const sum = (list: { delta: number }[]) => list.reduce((total, change) => total + change.delta, 0);
+
+	return ranges.map((range, i) => {
+		const start = document.offsetAt(range.start);
+		const shift = sum(changes.filter((_, j) => j !== i).flat().filter((change) => change.end <= start));
+		return { start: start + shift, end: document.offsetAt(range.end) + shift + sum(changes[i]) };
+	});
+}
+
 export function hasRanges(ranges?: any[]): ranges is vscode.Range[] {
 	return !!ranges?.length;
 }
@@ -274,32 +300,11 @@ export class UndoableWorkspaceEdit {
 			items: { prev: string; newText: string; lines: [number, number] }[];
 		}
 	> = new Map();
-	_queue?: {
-		uri: vscode.Uri;
-		items: { prev: string; newText: string; lines: [number, number] }[];
-	};
-	queue(edit: vscode.WorkspaceEdit) {
-		for (const [uri, edits] of edit.entries()) {
-			const editor = vscode.window.visibleTextEditors.find((e) => e.document.uri.toString() === uri.toString());
-			if (!editor) continue;
-			this._queue = {
-				uri,
-				items: edits.map((e) => ({
-					newText: e.newText,
-					prev: editor.document.getText(e.range),
-					lines: [e.range.start.line, e.range.end.line],
-				})),
-			};
-		}
-	}
-	append(success: boolean) {
-		if (!success) delete this._queue;
-		if (!this._queue) return;
-		const key = this._queue.uri.toString();
-		const items = this.prev.get(key);
-		this.prev.set(key, {
-			items: items ? [...items.items, ...this._queue.items] : this._queue.items,
-		});
+
+	/** Saves one undo step per item. `lines` are where `newText` now is in the document. */
+	record(uri: vscode.Uri, newItems: { prev: string; newText: string; lines: [number, number] }[]) {
+		const key = uri.toString();
+		this.prev.set(key, { items: [...(this.prev.get(key)?.items ?? []), ...newItems] });
 	}
 
 	getPrevItem(editor = vscode.window.activeTextEditor) {
@@ -307,16 +312,16 @@ export class UndoableWorkspaceEdit {
 		const prev = this.prev.get(editor.document.uri.toString());
 		if (!prev) return;
 
-		const cursor = editor.selection.active;
-		const line = editor.document.lineAt(cursor.line);
-		const text = editor.document.getText(line.rangeIncludingLineBreak);
-
-		const prevItem = prev.items.find(
-			(t) => (t.lines[0] === cursor.line || t.lines[1] === cursor.line) && text?.includes(t.newText)
+		const cursor = editor.selection.active.line;
+		const prevItem = prev.items.findLast(
+			({ lines: [first, last], newText }) =>
+				first <= cursor &&
+				cursor <= last &&
+				editor.document.getText(new vscode.Range(first, 0, last + 1, 0)).includes(newText)
 		);
 		if (!prevItem) return;
 
-		return { all: prev, prevItem, line };
+		return { all: prev, prevItem };
 	}
 
 	async undoAtCursor(editor = vscode.window.activeTextEditor) {
@@ -324,10 +329,10 @@ export class UndoableWorkspaceEdit {
 		const item = this.getPrevItem(editor);
 		if (!item) return;
 
-		const { prevItem, all, line } = item;
+		const { prevItem, all } = item;
 
 		const fullText = editor.document.getText();
-		const ntIndex = fullText.indexOf(prevItem.newText, editor.document.offsetAt(line.rangeIncludingLineBreak.start));
+		const ntIndex = fullText.indexOf(prevItem.newText, editor.document.offsetAt(new vscode.Position(prevItem.lines[0], 0)));
 		const range = new vscode.Range(
 			editor.document.positionAt(ntIndex),
 			editor.document.positionAt(ntIndex + prevItem.newText.length)

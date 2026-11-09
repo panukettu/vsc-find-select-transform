@@ -15,6 +15,11 @@ describe('parseMotionInput', () => {
 		expect(parseMotionInput("-4'")).toMatchObject({ type: 'element', numbers: -4, motion: { value: "'" } });
 	});
 
+	test('dashes in a target are kept', () => {
+		expect(parseMotionInput('<!--')).toMatchObject({ type: 'element', motion: { trimmedValue: '<!--' } });
+		expect(parseMotionInput('+-2<!--')).toMatchObject({ type: 'element', expand: true, numbers: -2, motion: { trimmedValue: '<!--' } });
+	});
+
 	test('"+" expands the selection', () => {
 		expect(parseMotionInput('+2fn', { isNext: true })).toMatchObject({ type: 'fn', expand: true, numbers: 2, isNext: true });
 	});

@@ -74,5 +74,6 @@ export function getMotionType(value: string, args?: Overrides) {
 }
 
 export function trimMotionInput(value: string) {
-	return value.replace(/(\s|\+|\-|\d)/g, '').trim();
+	// A "-" only belongs to the count when a digit follows: "<!--" keeps its dashes.
+	return value.replace(/(\s|\+|-(?=\d)|\d)/g, '').trim();
 }

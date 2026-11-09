@@ -40,7 +40,7 @@ function isEnd(str: string): str is keyof typeof endToStart {
 
 const getText = (editor: vscode.TextEditor, range: { start: string; end: string }) => {
 	const text = editor.document.getText();
-	const nonMatchingRanges = [...text.matchAll(/(['"`].*?['"`])|(\/\/.*\b)|(\/\*[\s\S]*\*\/)|(\/.*\/)/gm)].map((m) => ({
+	const nonMatchingRanges = [...text.matchAll(/(['"`].*?['"`])|(\/\/.*\b)|(\/\*[\s\S]*?\*\/)|(\/.*\/)/gm)].map((m) => ({
 		range: [m.index, m.index + m[0].length - 1],
 		innerRange: [m.index + 1, m.index + m[0].length - 2],
 		value: m[0],
@@ -49,8 +49,9 @@ const getText = (editor: vscode.TextEditor, range: { start: string; end: string 
 		.filter((m) => !nonMatchingRanges.find((r) => m.index! > r.range[0] && m.index! < r.range[1]))
 		.map((m) => m.index!);
 
+	/** The skipped range containing offset i. A multi-character end delimiter closing the range is not inside it. */
 	function findNonMatching(i: number) {
-		return nonMatchingRanges.find((r) => i > r.range[0] && i < r.range[1]);
+		return nonMatchingRanges.find((r) => i > r.range[0] && i < r.range[1] - range.end.length + 1);
 	}
 	const len = range.start.length > range.end.length ? range.start.length : range.end.length;
 	const isSame = range.start === range.end;
@@ -85,7 +86,8 @@ const getText = (editor: vscode.TextEditor, range: { start: string; end: string 
 				const r = text.indexOf(str, start);
 				if (r === -1) break;
 				const nonMatching = findNonMatching(r);
-				if (nonMatching) start = nonMatching.innerRange[1];
+				// Always move past r, or a match on the range's inner edge is found again forever.
+				if (nonMatching) start = Math.max(nonMatching.innerRange[1], r + 1);
 				else index = r;
 			}
 
@@ -99,7 +101,7 @@ const getText = (editor: vscode.TextEditor, range: { start: string; end: string 
 				if (r === -1) break;
 
 				const nonMatching = findNonMatching(r);
-				if (nonMatching) start = nonMatching.innerRange[0];
+				if (nonMatching) start = Math.min(nonMatching.innerRange[0], r - 1);
 				else index = r;
 			}
 
@@ -134,7 +136,11 @@ export function getRangeOf(
 			} else if (isPrev) {
 				startIdx = lastIndexOf(start, startIdx - len);
 				endIndex = indexOf(end, startIdx);
+			} else {
+				endIndex = indexOf(end, startIdx);
+				if (cursor >= endIndex + end.length) return;
 			}
+			if (startIdx < 0 || endIndex < 0) return;
 		} else if (isNext || isPrev) {
 			const starts = allStarts.filter((_, idx) => idx % 2 === 0);
 			const ends = allStarts.filter((_, idx) => idx % 2 !== 0);

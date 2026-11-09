@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import type { ExtTransformArgs, TFilter, Transform } from '../types';
-import { transformRanges } from './handler.transformer';
 import { getActiveEditor, getFullRange, isStringArray } from '../utils/utils';
 import type { TState } from '../state/state';
 
@@ -51,23 +50,14 @@ export async function transform<T extends Transform[] | TFilter>(state: TState, 
 		type,
 	};
 
-	for (const transform of fns) {
-		const ranges = getRanges(editor);
-		result.editCount += await state.setEdits(
-			[
-				{
-					document: editor.document,
-					items: transformRanges(
-						transform,
-						type === 'lines' ? ranges.map((r) => editor.document.lineAt(r.start.line).rangeIncludingLineBreak) : ranges,
-						editor,
-						ctx
-					),
-				},
-			],
-			{ applyEdits, edit }
-		);
-	}
+	const ranges = getRanges(editor);
+	result.editCount = await state.runTransforms(
+		fns,
+		type === 'lines' ? ranges.map((r) => editor.document.lineAt(r.start.line).rangeIncludingLineBreak) : ranges,
+		editor,
+		ctx,
+		{ applyEdits, edit }
+	);
 
 	return result;
 }

@@ -196,7 +196,10 @@ function handleElement(args: HandleArgs) {
 	const { cursor, input } = args;
 
 	debug('handleElementss', input, 'cursor', cursor.position);
-	if (!input.numbers) return [getRangeOf(input.motion.trimmedValue, { ...args, cursor: cursor.offset })];
+	if (!input.numbers) {
+		const range = getRangeOf(input.motion.trimmedValue, { ...args, cursor: cursor.offset });
+		return range ? [range] : [];
+	}
 	return handleNumbers(args, handleElement, true);
 }
 
