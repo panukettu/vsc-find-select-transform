@@ -144,7 +144,8 @@ bun run build      # or build:watch
 bun run typecheck
 bun run test:unit
 bun run test       # opens a VS Code window
-bun run vscode:package
+bun run release:build    # checks, then builds the .vsix
+bun run release:publish  # to the VS Code Marketplace and Open VSX
 ```
 
 Press `F5` to launch an Extension Development Host.
