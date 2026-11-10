@@ -1,17 +1,17 @@
 // Launches a VS Code window with the extension loaded from ./out (built and watched by the "dev: bun" task).
 // Integration tests run from the terminal: `bun run test`.
 {
-	"version": "0.2.0",
-	"configurations": [
-		{
-			"name": "Run Extension",
-			"type": "extensionHost",
-			"request": "launch",
-			"args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-			"skipFiles": ["<node_internals>/**/*.js", "${workspaceFolder}/node_modules/**/*.js"],
-			"autoAttachChildProcesses": true,
-			"outFiles": ["${workspaceFolder}/out/**/*.js"],
-			"preLaunchTask": "dev: bun"
-		}
-	]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "skipFiles": ["<node_internals>/**/*.js", "${workspaceFolder}/node_modules/**/*.js"],
+      "autoAttachChildProcesses": true,
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "dev: bun"
+    }
+  ]
 }

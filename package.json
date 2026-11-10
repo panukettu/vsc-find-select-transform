@@ -1,494 +1,497 @@
 {
-	"name": "find-select-transform",
-	"publisher": "0xp",
-	"author": {
-		"name": "panukettu",
-		"email": "panu@0xp.lol",
-		"url": "https://github.com/panukettu"
-	},
-	"displayName": "Find Select Transform",
-	"description": "Find, select and transform text with motions and your own TypeScript or RegExp transforms",
-	"version": "0.3.0",
-	"icon": "assets/convert.png",
-	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/panukettu/vsc-find-select-transform"
-	},
-	"scripts": {
-		"lint": "eslint src --ext ts",
-		"typecheck": "tsc --noEmit -p .",
-		"test:unit": "bun test",
-		"pretest": "bun run build:test",
-		"test": "vscode-test --config test/.vscode-test.mjs",
-		"vscode:package": "vsce package --no-dependencies",
-		"vscode:publish": "vsce publish --no-dependencies",
-		"vscode:prepublish": "bun run util/builder.ts --publish",
-		"publish:vsce": "vsce publish --packagePath find-select-transform-$npm_package_version.vsix",
-		"publish:ovsx": "npx --yes ovsx publish find-select-transform-$npm_package_version.vsix",
-		"release:build": "bun run typecheck && bun run test:unit && bun run vscode:package",
-		"release:publish": "bun run publish:vsce && bun run publish:ovsx",
-		"build": "bun run util/builder.ts",
-		"build:watch": "bun run util/builder.ts --watch",
-		"build:test": "bun run util/builder.ts --test"
-	},
-	"devDependencies": {
-		"@types/bun": "^1.1.11",
-		"@types/mocha": "^8.2.3",
-		"@types/node": "^20.17.0",
-		"@types/vscode": "^1.94.0",
-		"@vscode/test-cli": "^0.0.15",
-		"@vscode/test-electron": "^3.1.0",
-		"mocha": "^8.4.0",
-		"typescript": "^5.6.3"
-	},
-	"trustedDependencies": [
-		"vscode",
-		"@vscode/test-cli",
-		"@vscode/test-electron",
-		"mocha",
-		"@types/vscode"
-	],
-	"engines": {
-		"vscode": "^1.94.0"
-	},
-	"categories": [
-		"Other"
-	],
-	"main": "out/src/extension.js",
-	"activationEvents": [
-		"onStartupFinished"
-	],
-	"contributes": {
-		"configuration": {
-			"title": "find-select-transform",
-			"properties": {
-				"find-select-transform.search.jumpResultThreshold": {
-					"description": "Jump to the first result as soon as the search yields this many results or fewer. 0 disables this and the input length threshold is used instead.",
-					"type": "number",
-					"default": 0,
-					"minimum": 0
-				},
-				"find-select-transform.search.jumpInputThreshold": {
-					"description": "Jump to the first result once the typed search (excluding spaces) is at least this long. Ignored when jumpResultThreshold is set.",
-					"type": "number",
-					"default": 2,
-					"minimum": 0
-				},
-				"find-select-transform.search.jumpSelection": {
-					"description": "What to select when jumping to a search result.",
-					"type": "string",
-					"default": "input",
-					"enum": [
-						"input",
-						"first-input",
-						"first-word",
-						"words",
-						"start",
-						"end"
-					],
-					"enumDescriptions": [
-						"The whole matched text.",
-						"The first search word only, as typed.",
-						"The complete word the match starts in.",
-						"From the start of the match to the end of the word the match ends in.",
-						"Place the cursor at the start of the match.",
-						"Place the cursor at the end of the match."
-					]
-				},
-				"find-select-transform.transform.src": {
-					"description": "Path of your transforms file (.ts or .js). <root> is the workspace folder, <home> your home directory; relative paths are resolved from the workspace folder. If the file does not exist, click the status bar item (or run 'Transpile Transforms File') to create an example.",
-					"type": "string",
-					"default": "<root>/.vscode/transformer.ts"
-				},
-				"find-select-transform.transform.watch": {
-					"description": "Re-transpile the transforms file automatically when it changes. Otherwise it is transpiled on startup and when running 'Transpile Transforms File'.",
-					"type": "boolean",
-					"default": false
-				},
-				"find-select-transform.transform.disableUndoToggle": {
-					"description": "By default 'Transform Cursor Line' on a line you just transformed reverts it instead of transforming again. Enable to always transform.",
-					"type": "boolean",
-					"default": false
-				},
-				"find-select-transform.transform.regexp": {
-					"description": "RegExp based transforms. Each key is a transform name usable in associations and the 'With' quick picks.",
-					"type": "object",
-					"additionalProperties": {
-						"type": "object",
-						"additionalProperties": false,
-						"required": [
-							"transforms"
-						],
-						"properties": {
-							"flags": {
-								"description": "RegExp flags for every matcher of this transform. Default 'gm'.",
-								"type": "string",
-								"default": "gm",
-								"pattern": "^[dgimsuvy]*$"
-							},
-							"transforms": {
-								"type": "array",
-								"minItems": 1,
-								"description": "Applied in order to the whole selection: [matcher, replacer, flags?]. The replacer supports $1, $<name>, $& etc.",
-								"items": {
-									"type": "array",
-									"minItems": 2,
-									"maxItems": 3,
-									"items": {
-										"type": "string"
-									}
-								}
-							},
-							"additionalValues": {
-								"type": "object",
-								"description": "Extra values for the replacers: { id: pattern }. The pattern is matched against the original text (a group named like the id wins over the whole match) and every $id in the result is replaced with it, or removed when nothing matched.",
-								"additionalProperties": {
-									"type": "string"
-								}
-							}
-						}
-					},
-					"examples": [
-						{
-							"toDoubleQuotes": {
-								"flags": "g",
-								"transforms": [
-									[
-										"'(.*?)'",
-										"\"$1\""
-									]
-								]
-							},
-							"removeComments": {
-								"flags": "g",
-								"transforms": [
-									[
-										"(//.*|/\\*[^]*?\\*/)",
-										""
-									]
-								]
-							},
-							"formatAssignment": {
-								"transforms": [
-									[
-										"^(?<type>\\w+)\\s+(?<name>.*?)\\s*=\\s*(?<value>[^;/]*);?.*$",
-										"$comment\nconst $<name> = $<value>;"
-									]
-								],
-								"additionalValues": {
-									"comment": "(//.*)$"
-								}
-							}
-						}
-					]
-				},
-				"find-select-transform.transform.associations": {
-					"type": "object",
-					"additionalProperties": false,
-					"minProperties": 0,
-					"examples": [
-						{
-							"*": [
-								"myGlobalTransform"
-							],
-							"json": [
-								"removeJsonComments"
-							],
-							"ts": [
-								"myTsTransform"
-							],
-							"js": [
-								"myJsTransform",
-								"myJsTransform2"
-							]
-						},
-						{
-							"*": {
-								"cursor": [
-									"myGlobalLineTransform"
-								],
-								"range": [
-									"myGlobalRangeTransform"
-								]
-							},
-							"json": {
-								"cursor": [
-									"myJsonLineTransform"
-								],
-								"range": [
-									"myJsonRangeTransform"
-								]
-							},
-							"ts": [
-								"myTsTransform"
-							]
-						}
-					],
-					"patternProperties": {
-						"^(\\*|[\\w.+-]+)$": {
-							"oneOf": [
-								{
-									"type": "array",
-									"description": "Transforms for all commands.",
-									"minItems": 1,
-									"items": {
-										"type": "string",
-										"minLength": 1,
-										"maxLength": 100,
-										"description": "Transform to apply."
-									}
-								},
-								{
-									"type": "object",
-									"additionalProperties": true,
-									"minProperties": 1,
-									"description": "Select different transforms for cursor and range-based commands.",
-									"properties": {
-										"range": {
-											"type": "array",
-											"description": "Transform(s) for file/selection commands.",
-											"items": {
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 100,
-												"description": "Transform to apply."
-											}
-										},
-										"cursor": {
-											"type": "array",
-											"description": "Transform(s) for cursor commands.",
-											"minItems": 1,
-											"items": {
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 100,
-												"description": "Transform to apply."
-											}
-										}
-									}
-								}
-							]
-						}
-					},
-					"default": {
-						"*": [
-							"helloWorldsToFoo"
-						]
-					},
-					"description": "Which transforms run for which file extension: { ext: [names] } or { ext: { cursor: [names], range: [names] } }. 'cursor' is used by the cursor line commands, 'range' by the selection and file commands. '*' applies to extensions without an entry of their own."
-				}
-			}
-		},
-		"keybindings": [
-			{
-				"command": "find-select-transform.motion.change",
-				"key": "alt+x alt+x",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.changeBackward",
-				"key": "alt+x alt+a",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.changeForward",
-				"key": "alt+x alt+d",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.select",
-				"key": "alt+s alt+s",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.selectForward",
-				"key": "alt+s alt+d",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.selectBackward",
-				"key": "alt+s alt+a",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.searchFromLine",
-				"key": "alt+f alt+f",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.searchForward",
-				"key": "alt+f alt+d",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.searchBackward",
-				"key": "alt+f alt+a",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.goto",
-				"key": "alt+g alt+g",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.goto",
-				"key": "alt+q",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.repeat",
-				"key": "alt+c alt+c",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.repeatForward",
-				"key": "alt+c alt+d",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.motion.repeatBackward",
-				"key": "alt+c alt+a",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.transform.selection",
-				"key": "alt+t alt+s",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.transform.selectionWith",
-				"key": "alt+t s",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.transform.cursorLine",
-				"key": "alt+t alt+c",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.transform.cursorLineWith",
-				"key": "alt+t c",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.transform.repeat",
-				"key": "alt+t alt+t",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			},
-			{
-				"command": "find-select-transform.transform.undoAtCursor",
-				"key": "alt+t alt+z",
-				"when": "!find-select-transform.keysDisabled && editorFocus"
-			}
-		],
-		"commands": [
-			{
-				"command": "find-select-transform.transform.transpile",
-				"title": "find-select-transform: Transpile Transforms File (or create an example)"
-			},
-			{
-				"command": "find-select-transform.transform.selection",
-				"title": "find-select-transform: Transform Selection",
-				"enablement": "editorHasSelection && find-select-transform.ctx.hasTransforms"
-			},
-			{
-				"command": "find-select-transform.transform.selectionWith",
-				"title": "find-select-transform: Transform Selection With",
-				"enablement": "editorHasSelection && find-select-transform.ctx.hasTransforms"
-			},
-			{
-				"command": "find-select-transform.transform.cursorLine",
-				"title": "find-select-transform: Transform Cursor Line",
-				"enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
-			},
-			{
-				"command": "find-select-transform.transform.cursorLineWith",
-				"title": "find-select-transform: Transform Cursor Line With",
-				"enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
-			},
-			{
-				"command": "find-select-transform.transform.activeFile",
-				"title": "find-select-transform: Transform Active File",
-				"enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
-			},
-			{
-				"command": "find-select-transform.transform.activeFileWith",
-				"title": "find-select-transform: Transform Active File With",
-				"enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
-			},
-			{
-				"command": "find-select-transform.transform.repeat",
-				"title": "find-select-transform: Transform Repeat",
-				"enablement": "!editorReadonly && find-select-transform.ctx.hasPreviousTransform"
-			},
-			{
-				"command": "find-select-transform.transform.undoAtCursor",
-				"title": "find-select-transform: Undo At Cursor",
-				"enablement": "!editorReadonly && find-select-transform.ctx.hasPreviousTransform"
-			},
-			{
-				"command": "find-select-transform.motion.change",
-				"title": "find-select-transform: Motion Change",
-				"enablement": "!editorReadonly"
-			},
-			{
-				"command": "find-select-transform.motion.changeBackward",
-				"title": "find-select-transform: Motion Change Backward",
-				"enablement": "!editorReadonly"
-			},
-			{
-				"command": "find-select-transform.motion.changeForward",
-				"title": "find-select-transform: Motion Change Forward",
-				"enablement": "!editorReadonly"
-			},
-			{
-				"command": "find-select-transform.toggleKeybindings",
-				"title": "find-select-transform: Toggle Keybindings"
-			},
-			{
-				"command": "find-select-transform.motion.searchFromLine",
-				"title": "find-select-transform: Motion Search From Line"
-			},
-			{
-				"command": "find-select-transform.motion.searchForward",
-				"title": "find-select-transform: Motion Search Forward"
-			},
-			{
-				"command": "find-select-transform.motion.searchBackward",
-				"title": "find-select-transform: Motion Search Backward"
-			},
-			{
-				"command": "find-select-transform.motion.select",
-				"title": "find-select-transform: Motion Select"
-			},
-			{
-				"command": "find-select-transform.motion.selectBackward",
-				"title": "find-select-transform: Motion Select Backward"
-			},
-			{
-				"command": "find-select-transform.motion.selectForward",
-				"title": "find-select-transform: Motion Select Forward"
-			},
-			{
-				"command": "find-select-transform.motion.goto",
-				"title": "find-select-transform: Motion Go To"
-			},
-			{
-				"command": "find-select-transform.motion.repeat",
-				"title": "find-select-transform: Motion Repeat",
-				"enablement": "find-select-transform.ctx.hasPreviousMotion"
-			},
-			{
-				"command": "find-select-transform.motion.repeatBackward",
-				"title": "find-select-transform: Motion Repeat Backward",
-				"enablement": "find-select-transform.ctx.hasPreviousMotion"
-			},
-			{
-				"command": "find-select-transform.motion.repeatForward",
-				"title": "find-select-transform: Motion Repeat Forward",
-				"enablement": "find-select-transform.ctx.hasPreviousMotion"
-			}
-		]
-	}
+  "name": "find-select-transform",
+  "displayName": "Find Select Transform",
+  "version": "0.3.0",
+  "description": "Find, select and transform text with motions and your own TypeScript or RegExp transforms",
+  "categories": [
+    "Other"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "panukettu",
+    "email": "panu@0xp.lol",
+    "url": "https://github.com/panukettu"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/panukettu/vsc-find-select-transform"
+  },
+  "publisher": "0xp",
+  "main": "out/src/extension.js",
+  "scripts": {
+    "fmt": "oxfmt --disable-nested-config --write",
+    "lint": "oxlint --disable-nested-config",
+    "typecheck": "tsc --noEmit -p .",
+    "test:unit": "bun test",
+    "pretest": "bun run build:test",
+    "test": "vscode-test --config test/.vscode-test.mjs",
+    "vscode:package": "vsce package --no-dependencies",
+    "vscode:publish": "vsce publish --no-dependencies",
+    "vscode:prepublish": "bun run util/builder.ts --publish",
+    "publish:vsce": "vsce publish --packagePath find-select-transform-$npm_package_version.vsix",
+    "publish:ovsx": "bunx ovsx publish find-select-transform-$npm_package_version.vsix",
+    "release:build": "bun run typecheck && bun run test:unit && bun run vscode:package",
+    "release:publish": "bun run publish:vsce && bun run publish:ovsx",
+    "build": "bun run util/builder.ts",
+    "build:watch": "bun run util/builder.ts --watch",
+    "build:test": "bun run util/builder.ts --test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.11",
+    "@types/mocha": "^8.2.3",
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.94.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "mocha": "^8.4.0",
+    "oxfmt": "^0.75.0",
+    "oxlint": "^1.90.0",
+    "typescript": "^5.6.3"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "find-select-transform",
+      "properties": {
+        "find-select-transform.search.jumpResultThreshold": {
+          "description": "Jump to the first result as soon as the search yields this many results or fewer. 0 disables this and the input length threshold is used instead.",
+          "type": "number",
+          "default": 0,
+          "minimum": 0
+        },
+        "find-select-transform.search.jumpInputThreshold": {
+          "description": "Jump to the first result once the typed search (excluding spaces) is at least this long. Ignored when jumpResultThreshold is set.",
+          "type": "number",
+          "default": 2,
+          "minimum": 0
+        },
+        "find-select-transform.search.jumpSelection": {
+          "description": "What to select when jumping to a search result.",
+          "type": "string",
+          "default": "input",
+          "enum": [
+            "input",
+            "first-input",
+            "first-word",
+            "words",
+            "start",
+            "end"
+          ],
+          "enumDescriptions": [
+            "The whole matched text.",
+            "The first search word only, as typed.",
+            "The complete word the match starts in.",
+            "From the start of the match to the end of the word the match ends in.",
+            "Place the cursor at the start of the match.",
+            "Place the cursor at the end of the match."
+          ]
+        },
+        "find-select-transform.transform.src": {
+          "description": "Path of your transforms file (.ts or .js). <root> is the workspace folder, <home> your home directory; relative paths are resolved from the workspace folder. If the file does not exist, click the status bar item (or run 'Transpile Transforms File') to create an example.",
+          "type": "string",
+          "default": "<root>/.vscode/transformer.ts"
+        },
+        "find-select-transform.transform.watch": {
+          "description": "Re-transpile the transforms file automatically when it changes. Otherwise it is transpiled on startup and when running 'Transpile Transforms File'.",
+          "type": "boolean",
+          "default": false
+        },
+        "find-select-transform.transform.disableUndoToggle": {
+          "description": "By default 'Transform Cursor Line' on a line you just transformed reverts it instead of transforming again. Enable to always transform.",
+          "type": "boolean",
+          "default": false
+        },
+        "find-select-transform.transform.regexp": {
+          "description": "RegExp based transforms. Each key is a transform name usable in associations and the 'With' quick picks.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "transforms"
+            ],
+            "properties": {
+              "flags": {
+                "description": "RegExp flags for every matcher of this transform. Default 'gm'.",
+                "type": "string",
+                "default": "gm",
+                "pattern": "^[dgimsuvy]*$"
+              },
+              "transforms": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Applied in order to the whole selection: [matcher, replacer, flags?]. The replacer supports $1, $<name>, $& etc.",
+                "items": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalValues": {
+                "type": "object",
+                "description": "Extra values for the replacers: { id: pattern }. The pattern is matched against the original text (a group named like the id wins over the whole match) and every $id in the result is replaced with it, or removed when nothing matched.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "examples": [
+            {
+              "toDoubleQuotes": {
+                "flags": "g",
+                "transforms": [
+                  [
+                    "'(.*?)'",
+                    "\"$1\""
+                  ]
+                ]
+              },
+              "removeComments": {
+                "flags": "g",
+                "transforms": [
+                  [
+                    "(//.*|/\\*[^]*?\\*/)",
+                    ""
+                  ]
+                ]
+              },
+              "formatAssignment": {
+                "transforms": [
+                  [
+                    "^(?<type>\\w+)\\s+(?<name>.*?)\\s*=\\s*(?<value>[^;/]*);?.*$",
+                    "$comment\nconst $<name> = $<value>;"
+                  ]
+                ],
+                "additionalValues": {
+                  "comment": "(//.*)$"
+                }
+              }
+            }
+          ]
+        },
+        "find-select-transform.transform.associations": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 0,
+          "examples": [
+            {
+              "*": [
+                "myGlobalTransform"
+              ],
+              "json": [
+                "removeJsonComments"
+              ],
+              "ts": [
+                "myTsTransform"
+              ],
+              "js": [
+                "myJsTransform",
+                "myJsTransform2"
+              ]
+            },
+            {
+              "*": {
+                "cursor": [
+                  "myGlobalLineTransform"
+                ],
+                "range": [
+                  "myGlobalRangeTransform"
+                ]
+              },
+              "json": {
+                "cursor": [
+                  "myJsonLineTransform"
+                ],
+                "range": [
+                  "myJsonRangeTransform"
+                ]
+              },
+              "ts": [
+                "myTsTransform"
+              ]
+            }
+          ],
+          "patternProperties": {
+            "^(\\*|[\\w.+-]+)$": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "description": "Transforms for all commands.",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "description": "Transform to apply."
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "minProperties": 1,
+                  "description": "Select different transforms for cursor and range-based commands.",
+                  "properties": {
+                    "range": {
+                      "type": "array",
+                      "description": "Transform(s) for file/selection commands.",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100,
+                        "description": "Transform to apply."
+                      }
+                    },
+                    "cursor": {
+                      "type": "array",
+                      "description": "Transform(s) for cursor commands.",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100,
+                        "description": "Transform to apply."
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "default": {
+            "*": [
+              "helloWorldsToFoo"
+            ]
+          },
+          "description": "Which transforms run for which file extension: { ext: [names] } or { ext: { cursor: [names], range: [names] } }. 'cursor' is used by the cursor line commands, 'range' by the selection and file commands. '*' applies to extensions without an entry of their own."
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "find-select-transform.motion.change",
+        "key": "alt+x alt+x",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.changeBackward",
+        "key": "alt+x alt+a",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.changeForward",
+        "key": "alt+x alt+d",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.select",
+        "key": "alt+s alt+s",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.selectForward",
+        "key": "alt+s alt+d",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.selectBackward",
+        "key": "alt+s alt+a",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.searchFromLine",
+        "key": "alt+f alt+f",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.searchForward",
+        "key": "alt+f alt+d",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.searchBackward",
+        "key": "alt+f alt+a",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.goto",
+        "key": "alt+g alt+g",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.goto",
+        "key": "alt+q",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.repeat",
+        "key": "alt+c alt+c",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.repeatForward",
+        "key": "alt+c alt+d",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.motion.repeatBackward",
+        "key": "alt+c alt+a",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.transform.selection",
+        "key": "alt+t alt+s",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.transform.selectionWith",
+        "key": "alt+t s",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.transform.cursorLine",
+        "key": "alt+t alt+c",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.transform.cursorLineWith",
+        "key": "alt+t c",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.transform.repeat",
+        "key": "alt+t alt+t",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      },
+      {
+        "command": "find-select-transform.transform.undoAtCursor",
+        "key": "alt+t alt+z",
+        "when": "!find-select-transform.keysDisabled && editorFocus"
+      }
+    ],
+    "commands": [
+      {
+        "command": "find-select-transform.transform.transpile",
+        "title": "find-select-transform: Transpile Transforms File (or create an example)"
+      },
+      {
+        "command": "find-select-transform.transform.selection",
+        "title": "find-select-transform: Transform Selection",
+        "enablement": "editorHasSelection && find-select-transform.ctx.hasTransforms"
+      },
+      {
+        "command": "find-select-transform.transform.selectionWith",
+        "title": "find-select-transform: Transform Selection With",
+        "enablement": "editorHasSelection && find-select-transform.ctx.hasTransforms"
+      },
+      {
+        "command": "find-select-transform.transform.cursorLine",
+        "title": "find-select-transform: Transform Cursor Line",
+        "enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
+      },
+      {
+        "command": "find-select-transform.transform.cursorLineWith",
+        "title": "find-select-transform: Transform Cursor Line With",
+        "enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
+      },
+      {
+        "command": "find-select-transform.transform.activeFile",
+        "title": "find-select-transform: Transform Active File",
+        "enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
+      },
+      {
+        "command": "find-select-transform.transform.activeFileWith",
+        "title": "find-select-transform: Transform Active File With",
+        "enablement": "!editorReadonly && find-select-transform.ctx.hasTransforms"
+      },
+      {
+        "command": "find-select-transform.transform.repeat",
+        "title": "find-select-transform: Transform Repeat",
+        "enablement": "!editorReadonly && find-select-transform.ctx.hasPreviousTransform"
+      },
+      {
+        "command": "find-select-transform.transform.undoAtCursor",
+        "title": "find-select-transform: Undo At Cursor",
+        "enablement": "!editorReadonly && find-select-transform.ctx.hasPreviousTransform"
+      },
+      {
+        "command": "find-select-transform.motion.change",
+        "title": "find-select-transform: Motion Change",
+        "enablement": "!editorReadonly"
+      },
+      {
+        "command": "find-select-transform.motion.changeBackward",
+        "title": "find-select-transform: Motion Change Backward",
+        "enablement": "!editorReadonly"
+      },
+      {
+        "command": "find-select-transform.motion.changeForward",
+        "title": "find-select-transform: Motion Change Forward",
+        "enablement": "!editorReadonly"
+      },
+      {
+        "command": "find-select-transform.toggleKeybindings",
+        "title": "find-select-transform: Toggle Keybindings"
+      },
+      {
+        "command": "find-select-transform.motion.searchFromLine",
+        "title": "find-select-transform: Motion Search From Line"
+      },
+      {
+        "command": "find-select-transform.motion.searchForward",
+        "title": "find-select-transform: Motion Search Forward"
+      },
+      {
+        "command": "find-select-transform.motion.searchBackward",
+        "title": "find-select-transform: Motion Search Backward"
+      },
+      {
+        "command": "find-select-transform.motion.select",
+        "title": "find-select-transform: Motion Select"
+      },
+      {
+        "command": "find-select-transform.motion.selectBackward",
+        "title": "find-select-transform: Motion Select Backward"
+      },
+      {
+        "command": "find-select-transform.motion.selectForward",
+        "title": "find-select-transform: Motion Select Forward"
+      },
+      {
+        "command": "find-select-transform.motion.goto",
+        "title": "find-select-transform: Motion Go To"
+      },
+      {
+        "command": "find-select-transform.motion.repeat",
+        "title": "find-select-transform: Motion Repeat",
+        "enablement": "find-select-transform.ctx.hasPreviousMotion"
+      },
+      {
+        "command": "find-select-transform.motion.repeatBackward",
+        "title": "find-select-transform: Motion Repeat Backward",
+        "enablement": "find-select-transform.ctx.hasPreviousMotion"
+      },
+      {
+        "command": "find-select-transform.motion.repeatForward",
+        "title": "find-select-transform: Motion Repeat Forward",
+        "enablement": "find-select-transform.ctx.hasPreviousMotion"
+      }
+    ]
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "icon": "assets/convert.png",
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "trustedDependencies": [
+    "vscode",
+    "@vscode/test-cli",
+    "@vscode/test-electron",
+    "mocha",
+    "@types/vscode"
+  ]
 }

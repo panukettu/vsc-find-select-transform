@@ -12,13 +12,13 @@ Keyboard motions (find, select, change, go to) and your own TypeScript or RegExp
 
 Press a key, then type a motion. It applies as soon as it is valid.
 
-| Action | At cursor     | Forward       | Backward      |
-| ------ | ------------- | ------------- | ------------- |
-| Select | `alt+s alt+s` | `alt+s alt+d` | `alt+s alt+a` |
-| Change | `alt+x alt+x` | `alt+x alt+d` | `alt+x alt+a` |
-| Find   | `alt+f alt+f` | `alt+f alt+d` | `alt+f alt+a` |
-| Repeat | `alt+c alt+c` | `alt+c alt+d` | `alt+c alt+a` |
-| Go to  | `alt+g alt+g` or `alt+q` |    |               |
+| Action | At cursor                | Forward       | Backward      |
+| ------ | ------------------------ | ------------- | ------------- |
+| Select | `alt+s alt+s`            | `alt+s alt+d` | `alt+s alt+a` |
+| Change | `alt+x alt+x`            | `alt+x alt+d` | `alt+x alt+a` |
+| Find   | `alt+f alt+f`            | `alt+f alt+d` | `alt+f alt+a` |
+| Repeat | `alt+c alt+c`            | `alt+c alt+d` | `alt+c alt+a` |
+| Go to  | `alt+g alt+g` or `alt+q` |               |               |
 
 ### Syntax
 
@@ -59,18 +59,18 @@ All settings are prefixed with `find-select-transform.`.
 
 ```ts
 export default {
-	transforms: {
-		// Per line
-		trimEnd: (text) => text.trimEnd(),
-		// Chained
-		quotes: [(t) => t.replaceAll('"', "'"), (t) => t.trim()],
-		// Once with the whole range
-		sortLines: { type: 'raw', run: (text) => text.split('\n').sort().join('\n') },
-		// Split on a custom separator
-		upperCsv: { type: 'line', separator: ',', run: (text) => text.trim().toUpperCase() },
-		// Using the context
-		numberLines: (text, ctx) => `${ctx.line + 1}  ${text}`,
-	},
+  transforms: {
+    // Per line
+    trimEnd: (text) => text.trimEnd(),
+    // Chained
+    quotes: [(t) => t.replaceAll('"', "'"), (t) => t.trim()],
+    // Once with the whole range
+    sortLines: { type: "raw", run: (text) => text.split("\n").sort().join("\n") },
+    // Split on a custom separator
+    upperCsv: { type: "line", separator: ",", run: (text) => text.trim().toUpperCase() },
+    // Using the context
+    numberLines: (text, ctx) => `${ctx.line + 1}  ${text}`,
+  },
 };
 ```
 
@@ -104,33 +104,33 @@ Choose which transforms run per file extension. Several transforms chain, each r
 }
 ```
 
-A plain array applies to both. *Cursor Line* commands use `cursor`; *Selection* and *Active File* use `range`.
+A plain array applies to both. _Cursor Line_ commands use `cursor`; _Selection_ and _Active File_ use `range`.
 
 ### Commands
 
-| Command                     | Key           |
-| --------------------------- | ------------- |
-| Transform Selection         | `alt+t alt+s` |
-| Transform Selection With    | `alt+t s`     |
-| Transform Cursor Line       | `alt+t alt+c` |
-| Transform Cursor Line With  | `alt+t c`     |
-| Transform Active File       |               |
-| Transform Active File With  |               |
-| Transform Repeat            | `alt+t alt+t` |
-| Undo At Cursor              | `alt+t alt+z` |
-| Transpile Transforms File   |               |
-| Toggle Keybindings          |               |
+| Command                    | Key           |
+| -------------------------- | ------------- |
+| Transform Selection        | `alt+t alt+s` |
+| Transform Selection With   | `alt+t s`     |
+| Transform Cursor Line      | `alt+t alt+c` |
+| Transform Cursor Line With | `alt+t c`     |
+| Transform Active File      |               |
+| Transform Active File With |               |
+| Transform Repeat           | `alt+t alt+t` |
+| Undo At Cursor             | `alt+t alt+z` |
+| Transpile Transforms File  |               |
+| Toggle Keybindings         |               |
 
-*With* commands let you pick from a list. Running *Cursor Line* again reverts it, unless `transform.disableUndoToggle` is set.
+_With_ commands let you pick from a list. Running _Cursor Line_ again reverts it, unless `transform.disableUndoToggle` is set.
 
 Problems are reported in the **find-select-transform** output channel.
 
 ## Extension API
 
 ```ts
-const fst = vscode.extensions.getExtension('0xp.find-select-transform')!.exports;
+const fst = vscode.extensions.getExtension("0xp.find-select-transform")!.exports;
 
-await fst.transform({ transforms: ['trimEnd'] });
+await fst.transform({ transforms: ["trimEnd"] });
 await fst.motion("'", { isNext: true });
 ```
 
